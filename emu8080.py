@@ -120,6 +120,28 @@ def Cma(i):
 		
 	pc+=1
 	
+def Daa(i):
+	global pc
+	
+	l4=regs[7]&0x0f
+		
+	if l4>9 or regs[FLAG]&AUX_CARRY_BIT!=0:
+		l4+=0x06
+		regs[7]+=0x06
+		
+	SetAuxCarry(l4>=16)
+
+	if (regs[7]>>4)>9 or regs[FLAG]&CARRY_BIT!=0:
+		regs[7]+=0x60
+		SetCarry(True)
+		
+	regs[7]&=0b11111111
+	
+	SetZeroSign(regs[7])
+	SetParity(regs[7])        
+	
+	pc+=1
+	
 def Mov(i):
 	global pc
 	
@@ -160,6 +182,27 @@ def Mvi(i):
 	regs[r]=mem[pc]
 	
 	pc+=1
+
+def Adi(i):
+	global pc
+	
+	src=mem[pc+1]
+	
+	index=(regs[7]&0b00001000)>>1
+	index+=(src&0b00001000)>>2
+
+	regs[7]+=src
+		
+	index+=(regs[7]&0b00001000)>>3
+	SetAuxCarry(half_carry_table[index]==1)
+	SetCarry(regs[7]>=256)
+		
+	regs[7]&=0b11111111
+	
+	SetZeroSign(regs[7])
+	SetParity(regs[7])
+		
+	pc+=2
 	
 def OpAcc(i):
 	global pc
@@ -573,6 +616,7 @@ InstFuncs[0b00111111]=CarryBit
 SetInstFuncs(0b00000100,0b00111100,0b00001000,Inr)
 SetInstFuncs(0b00000101,0b00111101,0b00001000,Dcr)
 InstFuncs[0b00101111]=Cma
+InstFuncs[0b00100111]=Daa
 SetInstFuncs(0b01000000,0b01111111,0b00000001,Mov)
 InstFuncs[0b00000010]=Stax
 InstFuncs[0b00010010]=Stax
@@ -580,6 +624,7 @@ InstFuncs[0b00001010]=Ldax
 InstFuncs[0b00011010]=Ldax
 SetInstFuncs(0b10000000,0b10111111,0b00000001,OpAcc)
 SetInstFuncs(0b11000110,0b11111110,0b00001000,OpAcc)
+InstFuncs[0b11000110]=Adi
 SetInstFuncs(0b00000110,0b00111110,0b00001000,Mvi)
 InstFuncs[0b00000111]=Rlc
 InstFuncs[0b00001111]=Rrc
@@ -683,9 +728,13 @@ mem[6]=0x00
 mem[7]=0xd0
 
 #mem[0]=0x3e
-#mem[1]=0x2
-#mem[2]=0xd6
-#mem[3]=0x3
+#mem[1]=0x99
+#mem[2]=0xc6
+#mem[3]=0x099
+#mem[4]=0x27
+
+mem[0x120]=0x40
+mem[0x121]=0x1
 
 print(time.process_time())
 stepping=False
