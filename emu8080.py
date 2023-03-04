@@ -21,6 +21,75 @@ SIGN_BIT=0b10000000
 half_carry_table=[0, 0, 1, 0, 1, 0, 1, 1]
 sub_half_carry_table=[0, 1, 1, 1, 0, 0, 0, 1]
 
+
+def LoadHex():
+	hex="""
+:1004000078047804000000000000000000000000F4
+:1004100000000000000000000000000000000000DC
+:1004200000000000000000000000000000000000CC
+:1004300000000000000000000000000000000000BC
+:1004400000000000000000000000000000000000AC
+:10045000000000000000000000000000000000009C
+:10046000000000000000000000000000000000008C
+:08047000000000000000000084
+:10001000213704237DFE78CA1C010E01E5CD0500C1
+:10002000E177FE0AC21300213804CD3000C313006B
+:100030007EFE0AC8CDFF0047E5D178FE22C24C0003
+:100040007E23FE0ACA2101FE22C23A007ECDFF00B5
+:10005000B8C2580023C33A002B7EF680772378FE7F
+:1000600020CA3000FE30CAA000FE41C274007D3DAF
+:10007000BBCA8E00CDCD00FEECCA8900E52A020481
+:100080007723220204E1C330003E00C321011AE6B7
+:1000900080DE412A02047723220204EB23C33000CE
+:1000A000210000E5C1292909291AE67FD6304F062B
+:1000B00000091A13E680CAA300D5EB2A02043E1AEF
+:1000C000772373237223220204E1C33000E5217EEB
+:1000D000032C2C7DFEEBCAED00D5CDF100D1FE0046
+:1000E000CAED007E2CE680C2D100C3E3007D3CE176
+:1000F000C91A96C07EE680EE80C81323C3F100FEC5
+:1001000030DA0901FE3ADA1401FE41DA1301FE5B2E
+:10011000DA1701C93E30C93E41C9C9C93E0FC322E1
+:1001200001E1FE0AC22901C607C630F53E0ACD42EA
+:10013000013E45CD4201F1CD42013E0ACD4201C30F
+:0801400010005F0E02C3050070
+:100380005052494ED41A014C45D41B01474F54CF0B
+:100390000000474F5355C200005245545552CE00FD
+:1003A0000049C60000454EC40000544845CE000038
+:1003B0005255CE00004C4953D40000434C4541D225
+:1003C0000000AC0000AB0000AD0000AA0000AF00D0
+:1003D00000BD0000BE0000BC0000BE00003CBD002F
+:0C03E000003EBD0000A80000A9000000C5
+:00000001FF
+"""
+	
+	state=0
+	str=""
+	for c in hex:
+		print(c)
+		if c==":":
+			state=1
+			str=""
+		else:
+			str+=c
+			if state==1 and len(str)==2:
+				recordlen=int(str,16)
+				str=""
+				state=2
+			elif state==2 and len(str)==4:
+				addr=int(str,16)
+				str=""
+				state=3
+			elif state==3 and len(str)==2:
+				str=""
+				state=4
+			elif state==4 and recordlen>0 and len(str)==2:
+				recordlen-=1
+				print(str)
+				mem[addr]=int(str,16)
+				addr+=1
+				str=""
+			
+
 def LoadFile():
 	unverified_context = ssl._create_unverified_context()
 	url="https://altairclone.com/downloads/cpu_tests/8080EXER.COM"
@@ -36,7 +105,16 @@ def LoadFile():
 		mem[addr]=int.from_bytes(byte,"little")
 		byte=file.read(1)
 		addr+=1
-	
+
+def LoadAscFile(f):
+	with open(f, 'r') as file:
+		sections = eval(file.read())
+	for (addr,b) in sections:
+		for x in b:
+			mem[addr]=x
+			addr+=1
+
+
 def NOP(i):
 	global pc
 	pc+=1
@@ -611,6 +689,16 @@ def Rst(i):
 	sp=(sp+0xfffe)&0xffff
 	pc=i&0b00111000
 	
+def Out(i):
+	global pc
+	pc+=1
+	o=mem[pc]
+	
+	if o==0:
+		print(chr(regs[7]))
+	
+	pc+=1
+	
 InstFuncs[0b00110111]=CarryBit
 InstFuncs[0b00111111]=CarryBit
 SetInstFuncs(0b00000100,0b00111100,0b00001000,Inr)
@@ -671,8 +759,8 @@ InstFuncs[0b11110000]=Rp
 InstFuncs[0b11111000]=Rm
 InstFuncs[0b11101000]=Rpe
 InstFuncs[0b11100000]=Rpo
-
 SetInstFuncs(0b11000111,0b11111111,0b00001000,Rst)
+InstFuncs[0b11010011]=Out
 
 def Show():
 	#Update M so that it is displayed correctly
@@ -683,6 +771,12 @@ def Show():
 	print("SP:"+hex(sp))
 	print("PC:"+hex(pc))
 	print("@PC:"+hex(mem[pc]))
+	print(InstFuncs[mem[pc]])
+	showmem=0x478
+	s=""
+	for i in range(showmem,showmem+10):
+		s+=hex(mem[i])+","
+	print(s[:-1])
 	
 def SingleStep():
 	global pc
@@ -696,8 +790,12 @@ def SingleStep():
 	#if M has changed then the instruction must have acted on M, so update memory
 	if regs[6]!=tmp:
 		mem[(regs[4]<<8)+regs[5]]=regs[6]
-	
+
+inputBuffer=""
+
 def CpmStub():
+	global inputBuffer
+	
 	if pc==0:
 		print("Restart")
 		exit()
@@ -713,33 +811,37 @@ def CpmStub():
 				sys.stdout.write(c)
 				s+=1
 		elif regs[1]==2:
+			print(regs[3])
 			sys.stdout.write(chr(regs[3]))
+		elif regs[1]==1:
+			if len(inputBuffer)==0:
+				inputBuffer=input()+str(chr(10))
+				
+			regs[7]=ord(inputBuffer[0])
+			regs[5]=ord(inputBuffer[0])
+			inputBuffer=inputBuffer[1:]
 		else:
 			print("Unrecognised CP/M call")
+			print(regs[1])
 		
-LoadFile()
+#LoadFile()
 mem[0]=0xc3
-mem[1]=0x00
-mem[2]=0x01
+mem[1]=0x10
+mem[2]=0x00
 mem[3]=0x00
 mem[4]=0x00
 mem[5]=0xc9
 mem[6]=0x00
 mem[7]=0xd0
 
-#mem[0]=0x3e
-#mem[1]=0x99
-#mem[2]=0xc6
-#mem[3]=0x099
-#mem[4]=0x27
+LoadHex()
+#LoadAscFile("test.asc")
 
-mem[0x120]=0x40
-mem[0x121]=0x1
-
-print(time.process_time())
-stepping=False
+#print(time.process_time())
+stepping=True
+Show()
 while True:
-	if pc==0xc8d and 1==0:
+	if (pc==0x0010 or pc==0x00c1 or pc==0x001f) and 1==1:
 		stepping=True
 	if stepping:
 		Show()
